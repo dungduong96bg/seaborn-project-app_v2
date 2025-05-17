@@ -463,7 +463,7 @@ if submit:
             'CODE_GENDER': encode_gender(gender) if gender != "Chọn" else np.nan,
             'NAME_EDUCATION_TYPE': encode_education(education if education != "Chọn" else None),
             'DAYS_EMPLOYED': encode_days_employed(days_employed),
-            'MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M': calculate_max_utilization(df),
+            'MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M': calculate_max_utilization(df,type='max'),
             'AMT_ANNUITY': amt_annuity * 1e6,
             'DAYS_ID_PUBLISH': calculate_days_id_publish(change_date.strftime('%Y-%m-%d'), application_date.strftime('%Y-%m-%d')),
             'AMT_EARLY_SUM_SUM_ALL': sum(entry['Dư nợ'] for entry in st.session_state.loan_entries if entry['Ngày trả gần nhất'] <= entry['Ngày trả theo lịch'] and entry['Ngày trả gần nhất'] <= entry['Ngày trả theo lịch']),
@@ -480,7 +480,7 @@ if submit:
         y_pred = model.predict(X_input)[0]
         scaled_score = score_scaling(y_pred)
         age = compute_age_exact(birth_date)
-        MEAN_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M = calculate_max_utilization(df,type='mean')
+        #MEAN_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M = calculate_max_utilization(df,type='mean')
         MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M = calculate_max_utilization(df,type='max')
         #avg_limit_3m =
         credit_limit = suggest_credit_limit(
@@ -488,7 +488,8 @@ if submit:
             age,
             gender,
             education,
-            MEAN_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M,
+            5e+06,
+            #MEAN_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M,
             MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M,
             low=430.59,
             med=481.02,
