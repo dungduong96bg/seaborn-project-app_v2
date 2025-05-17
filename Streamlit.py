@@ -107,6 +107,18 @@ def calculate_max_utilization(df):
 
     return max_avg_utilization_3m
 
+def calculate_avg_limit_l3m(df):#change-ver2
+    if "Ngày trả theo lịch" not in df.columns:
+        #st.warning("Không tìm thấy cột 'Ngày trả theo lịch' trong dữ liệu.")
+        return 0
+    df["Ngày trả theo lịch"] = pd.to_datetime(df["Ngày trả theo lịch"], errors='coerce')
+    df['Month'] = df['Ngày trả theo lịch'].apply(lambda x: x.strftime('%Y-%m') if pd.notnull(x) else None)
+    cc_df = df[df['Khoản vay thẻ?']==True]
+    if cc_df.empty:
+        return 0
+    avg_limit_per_month = cc_df.groupby('Month')['Hạn mức được cấp'].mean()
+    avg_limit_l3m = avg_limit_per_month.tail(3).mean()
+    return avg_limit_l3m
 
 def calculate_street_loan_count(df):
     return df[df['Kênh'] == 'Tại quầy'].shape[0]
@@ -120,7 +132,7 @@ def score_scaling(p):
     score = offset + factor * np.log((1 - p) / p)
     return score
 
-def suggest_credit_limit(score, age, gender, education, avg_limit_3m, utilization_rate, #change
+def suggest_credit_limit(score, age, gender, education, avg_limit_3m, utilization_rate, #change-ver2
                          low, med, high, cap):
     """
     Hàm đề xuất hạn mức vay dựa trên nhiều yếu tố đầu vào.
@@ -171,20 +183,20 @@ def suggest_credit_limit(score, age, gender, education, avg_limit_3m, utilizatio
         "Trung học cơ sở": 0.7,
         "Trung học phổ thông / Trung cấp": 0.85,
         "Đại học chưa hoàn thành": 0.95,
-        "Đại học": 1.0,
-        "Sau đại học": 1.2
+        "Đại học": 1.2,
+        "Sau đại học": 1.5
     }
     edu_factor = edu_factors.get(education, 1.0)
 
     # 5. Hệ số tỷ lệ sử dụng hạn mức
     if utilization_rate > 0.9:
-        utilization_factor = 0.6
+        utilization_factor = 1.5
     elif utilization_rate > 0.6:
-        utilization_factor = 0.8
-    elif utilization_rate > 0.3:
-        utilization_factor = 1.0
-    else:
         utilization_factor = 1.2
+    elif utilization_rate > 0.3:
+        utilization_factor = 0.8
+    else:
+        utilization_factor = 0.6
 
     # Tổng hệ số nhân
     total_factor = (score_factor *
@@ -467,14 +479,13 @@ if submit:
         age = compute_age_exact(birth_date)
         #MEAN_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M = calculate_max_utilization(df,type='mean')
         MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M = calculate_max_utilization(df)
-        #avg_limit_3m =
-        credit_limit = suggest_credit_limit(
+        avg_limit_3m = calculate_avg_limit_l3m(df)
+        credit_limit = suggest_credit_limit(  # change-ver2
             scaled_score,
             age,
             gender,
             education,
-            5e+06,
-            #MEAN_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M,
+            avg_limit_3m,
             MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M,
             low=430.59,
             med=481.02,
