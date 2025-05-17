@@ -32,6 +32,31 @@ def compute_debt_credit_ratio(debt, credit_sum):
 def compute_days_birth(birth_date):
     return (birth_date - datetime.today().date()).days
 
+
+def compute_age_exact(birth_date):  # change
+    today = datetime.today().date()
+
+    # Số năm đầy đủ
+    years = today.year - birth_date.year
+
+    # Nếu chưa đến sinh nhật năm nay thì trừ 1 năm
+    if (today.month, today.day) < (birth_date.month, birth_date.day):
+        years -= 1
+
+    # Tính số ngày từ sinh nhật năm nay đến hôm nay
+    last_birthday = birth_date.replace(year=today.year)
+    if last_birthday > today:
+        last_birthday = last_birthday.replace(year=today.year - 1)
+
+    days_since_birthday = (today - last_birthday).days
+    # Tính tổng ngày trong năm (năm hiện tại)
+    next_birthday = last_birthday.replace(year=last_birthday.year + 1)
+    days_in_year = (next_birthday - last_birthday).days
+
+    # Tuổi chính xác có phần thập phân
+    age = years + days_since_birthday / days_in_year
+
+    return round(age, 1)
 def calculate_days_id_publish(change_date_str, application_date_str):
     change_date = datetime.strptime(change_date_str, '%Y-%m-%d')
     application_date = datetime.strptime(application_date_str, '%Y-%m-%d')
@@ -67,18 +92,86 @@ def score_scaling(p):
     score = offset + factor * np.log((1 - p) / p)
     return score
 
-def suggest_credit_limit(score_100, max_amount=500_000_000):
-    if score_100 >= 80:
-        return 0.8 * max_amount
-    elif score_100 >= 60:
-        return 0.6 * max_amount
-    elif score_100 >= 40:
-        return 0.4 * max_amount
+def suggest_credit_limit(score, age, gender, education, avg_limit_3m, utilization_rate, #change
+                         low, med, high, cap):
+    """
+    Hàm đề xuất hạn mức vay dựa trên nhiều yếu tố đầu vào.
+
+    Tham số:
+        - score: điểm tín dụng
+        - age: tuổi
+        - gender: 'Nam' hoặc 'Nữ'
+        - education: trình độ học vấn (string)
+        - avg_limit_3m: hạn mức bình quân 3 tháng gần nhất
+        - utilization_rate: tỷ lệ sử dụng hạn mức hiện tại (0–1)
+        - low, med, high: các ngưỡng điểm tín dụng phân loại
+        - cap: giá trị trần hạn mức cho phép
+
+    Trả về:
+        - hạn mức đề xuất (làm tròn đến hàng chục ngàn)
+    """
+
+    # 1. Hệ số theo điểm tín dụng
+    if score <= low:
+        score_factor = 0
+    elif score <= med:
+        score_factor = 0.75
+    elif score <= high:
+        score_factor = 1.5
     else:
-        return 0.2 * max_amount
+        score_factor = 2
+
+    # 2. Hệ số theo tuổi
+    if age < 25:
+        age_factor = 0.8
+    elif age <= 35:
+        age_factor = 1.0
+    else:
+        age_factor = 1.2
+
+    # 3. Hệ số giới tính
+    if gender.lower() == 'Nữ':
+        gender_factor = 1.0
+    elif gender.lower() == 'Chọn':
+        gender_factor = 0.5
+    else:
+        gender_factor = 0.95
+
+
+    # 4. Hệ số học vấn
+    edu_factors = {
+        "Trung học cơ sở": 0.7,
+        "Trung học phổ thông / Trung cấp": 0.85,
+        "Đại học chưa hoàn thành": 0.95,
+        "Đại học": 1.0,
+        "Sau đại học": 1.2
+    }
+    edu_factor = edu_factors.get(education, 1.0)
+
+    # 5. Hệ số tỷ lệ sử dụng hạn mức
+    if utilization_rate > 0.9:
+        utilization_factor = 0.6
+    elif utilization_rate > 0.6:
+        utilization_factor = 0.8
+    elif utilization_rate > 0.3:
+        utilization_factor = 1.0
+    else:
+        utilization_factor = 1.2
+
+    # Tổng hệ số nhân
+    total_factor = (score_factor *
+                    age_factor *
+                    gender_factor *
+                    edu_factor *
+                    utilization_factor)
+
+    # Hạn mức đề xuất, giới hạn bởi cap
+    suggested_limit = min(avg_limit_3m * total_factor, cap)
+
+    return round(suggested_limit, -4)  # Làm tròn theo hàng chục ngàn
 
 # ---------------------- Giao diện người dùng ----------------------
-st.set_page_config(page_title="Credit Scoring App", layout="centered")
+st.set_page_config(page_title="Credit Scoring App", layout="wide")
 st.title("💳 Ứng dụng chấm điểm tín dụng khách hàng")
 
 #page_bg_img = '''
@@ -111,7 +204,7 @@ with st.expander("👤 Thông tin cá nhân"):
 
     col5, col6 = st.columns([2, 2])
     with col5:
-        change_date_cmnd = st.date_input("Ngày cấp CMND", value=date.today())
+        change_date = st.date_input("Ngày cấp CMND", value=date.today())
     with col6:
         education = st.selectbox("Trình độ học vấn", options=["Chọn", "Trung học cơ sở", "Trung học phổ thông / Trung cấp", "Đại học", "Đại học chưa hoàn thành", "Sau đại học"])
 
@@ -120,6 +213,11 @@ with st.expander("👤 Thông tin cá nhân"):
         days_employed = st.number_input("Số ngày làm việc", min_value=-1000000, max_value=365243, step=1)
     with col8:
         income_type = st.selectbox("Loại thu nhập", ['Chọn', 'Làm công ăn lương', 'Thất nghiệp', 'Sinh viên', 'Công chức nhà nước', 'Người nghỉ hưu', 'Nghỉ thai sản', 'Đối tác kinh doanh', 'Chủ doanh nghiệp'])
+    col9, col10 = st.columns([2, 2])
+    with col9:
+        application_date = st.date_input("Ngày nộp đơn vay")
+    with col10:
+        credit_application_date = st.date_input("Ngày đăng ký tín dụng")
 # 5. Giấy tờ bổ sung
 with st.expander("📎 Hồ sơ khoản vay"):
     checklist_options = [
@@ -206,27 +304,56 @@ with st.expander("💰 Thông tin tín dụng"):
     with col8:
         MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M = st.number_input("Tỷ lệ sử dụng hạn mức 3 tháng gần nhất", min_value=0.0, max_value=1.0)
 
+
 # 4. Lịch sử tín dụng (danh sách khoản vay)
 #st.markdown("### 🗓 Lịch sử tín dụng (các khoản vay còn hiệu lực)")
 with st.expander("📄 Thông tin các khoản vay"):
     if "loan_entries" not in st.session_state:
         st.session_state.loan_entries = []
 
-    col1, col2 = st.columns([2, 1])
+    # Tạo các cột cho tất cả các input trong một hàng
+    col1, col2, col3, col4, col5, col6, col7, col8, col9, col10 = st.columns([1, 1, 1, 1, 1, 1, 1, 1, 1,1])
+
     with col1:
         new_loan_id = st.text_input("🔹 Mã khoản vay", key="loan_id")
     with col2:
-        new_days_remaining = st.number_input("🔸 Số ngày còn lại (ngày)", min_value=1, max_value=5000, step=1, key="days_remaining")
+        new_days_remaining = st.number_input("🔸 Số ngày còn lại", min_value=1, max_value=5000, step=1, key="days_remaining")
+    with col3:
+        new_limit = st.number_input("Hạn mức được cấp", min_value=0, step=1000000, format="%d", key="limit")
+    with col4:
+        new_outstanding = st.number_input("Dư nợ", min_value=0, step=1000000, format="%d", key="outstanding")
+    with col5:
+        new_last_payment_date = st.date_input("Ngày trả gần nhất", key="last_payment_date")
+    with col6:
+        new_scheduled_payment_date = st.date_input("Ngày trả theo lịch", key="scheduled_payment_date")
+    with col7:
+        new_channel = st.selectbox("Kênh", ["Online", "Tại quầy"], key="channel")
+    with col8:
+        new_is_installment = st.checkbox("Trả góp", key="is_installment")
+    with col9:
+        new_is_cc = st.checkbox("Khoản vay thẻ?", key="is_closed")
+    with col10:
+        new_is_closed = st.checkbox("Đã đóng khoản vay chưa?", key="is_cc")
 
+    # Nút thêm khoản vay
     if st.button("➕ Thêm khoản vay"):
         if new_loan_id:
             st.session_state.loan_entries.append({
                 "Mã khoản vay": new_loan_id,
-                "Số ngày còn lại": new_days_remaining
+                "Số ngày còn lại": new_days_remaining,
+                "Trả góp": new_is_installment,
+                "Hạn mức được cấp": new_limit,
+                "Dư nợ": new_outstanding,
+                "Ngày trả gần nhất": new_last_payment_date,
+                "Ngày trả theo lịch": new_scheduled_payment_date,
+                "Kênh": new_channel,
+                "Đã đóng khoản vay chưa?": new_is_closed
             })
 
+    # Hiển thị DataFrame
     if st.session_state.loan_entries:
-        st.dataframe(pd.DataFrame(st.session_state.loan_entries))
+        df = pd.DataFrame(st.session_state.loan_entries)
+        st.dataframe(df)
 
 # 6. Submit & xử lý mô hình
 submit = st.button("🚀 Chấm điểm tín dụng")
@@ -250,7 +377,7 @@ if submit:
             'MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M': MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M,
             'AMT_ANNUITY': amt_annuity * 1e6,
             'DAYS_ID_PUBLISH': calculate_days_id_publish(change_date.strftime('%Y-%m-%d'), application_date.strftime('%Y-%m-%d')),
-            'AMT_EARLY_SUM_SUM_ALL': 0,
+            'AMT_EARLY_SUM_SUM_ALL': sum(entry['Dư nợ'] for entry in st.session_state.loan_entries if entry['Ngày trả gần nhất'] <= entry['Ngày trả theo lịch'] and entry['Ngày trả gần nhất'] <= entry['Ngày trả theo lịch']),
             'DAYS_CREDIT_ENDDATE_max': calculate_days_credit_enddate_max(credit_durations),
             'NAME_INCOME_TYPE': map_income_type(income_type),
             'FLAG_DOCUMENT_3': convert_document_3(flag_document_3),
@@ -259,18 +386,30 @@ if submit:
             'NAME_PRODUCT_TYPE_street_sum': 0
         }
 
-        X_input = pd.DataFrame([features])
+        X_input = pd.DataFrame([features])  # change
         X_input = X_input.astype({"TERM": float, "AMT_ANNUITY": float})
-        score = model.predict(X_input)[0]
-        scaled_score = round(score_scaling(score), 2)
-        credit_limit = suggest_credit_limit(scaled_score)
+        y_pred = model.predict(X_input)[0]
+        scaled_score = score_scaling(y_pred)
+        age = compute_age_exact(birth_date)
+        credit_limit = suggest_credit_limit(
+            scaled_score,
+            age,
+            gender,
+            education,
+            50e+6,
+            MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M,
+            low=430.59,
+            med=481.02,
+            high=519.62,
+            cap=500 * 1e6
+        )
 
         st.markdown(f"""
-        <div>
-            <h2>🎯 Điểm tín dụng: <span>{scaled_score}/100</span></h2>
-            <h3 >💰 Hạn mức vay gợi ý: <span>{credit_limit:,.0f} VNĐ</span></h3>
-        </div>
-        """, unsafe_allow_html=True)
+                <div>
+                    <h2>🎯 Điểm tín dụng: <span>{round(scaled_score, 2)}</span></h2>
+                    <h3 >💰 Hạn mức vay gợi ý: <span>{credit_limit:,.0f} VNĐ</span></h3>
+                </div>
+                """, unsafe_allow_html=True)
 
         st.subheader("🧠 Giải thích mô hình")
         st.write("Biểu đồ dưới đây cho thấy các đặc trưng ảnh hưởng nhất đến điểm tín dụng của khách hàng:")
