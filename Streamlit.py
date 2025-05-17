@@ -82,45 +82,30 @@ def convert_document_3(value):
 def convert_car_ownership(value):
     return 1 if value == 'Có' else 0
 
-def calculate_max_utilization(df, type='max'):
+def calculate_max_utilization(df):
+    # Kiểm tra sự tồn tại của cột "Ngày trả theo lịch"
     if "Ngày trả theo lịch" not in df.columns:
+        st.warning("Không tìm thấy cột 'Ngày trả theo lịch' trong dữ liệu.")
         return 0
 
-    # Đảm bảo các giá trị là datetime
-    df["Ngày trả theo lịch"] = pd.to_datetime(df["Ngày trả gần nhất"], errors='coerce')
+    # Đảm bảo các giá trị là kiểu datetime
+    df["Ngày trả theo lịch"] = pd.to_datetime(df["Ngày trả theo lịch"], errors='coerce')
+
+    # Tạo cột 'Month'
     df['Month'] = df['Ngày trả theo lịch'].apply(lambda x: x.strftime('%Y-%m') if pd.notnull(x) else None)
 
-    # Kiểm tra cột 'Khoản vay thẻ?' có tồn tại không và có giá trị hợp lệ không
-    if "Khoản vay thẻ?" not in df.columns:
-        return 0
-
-    # Lọc các khoản vay thẻ
-    cc_df = df[df['Khoản vay thẻ?'] == True]
+    # Lọc khoản vay thẻ
+    cc_df = df[df['Khoản vay thẻ?']]
 
     if cc_df.empty:
         return 0
 
-    # Xử lý chia cho 0 và NaN
-    cc_df['Hạn mức được cấp'] = cc_df['Hạn mức được cấp'].replace({0: np.nan})
+    # Tính toán tỷ lệ sử dụng hạn mức
     cc_df['Utilization_Ratio'] = cc_df['Dư nợ'] / cc_df['Hạn mức được cấp']
-
-    # Loại bỏ các giá trị NaN, inf, -inf
-    cc_df['Utilization_Ratio'].replace([np.inf, -np.inf], np.nan, inplace=True)
-    cc_df = cc_df.dropna(subset=['Utilization_Ratio'])
-
-    # Tính toán tỷ lệ sử dụng hạn mức trung bình theo tháng
     avg_utilization_per_month = cc_df.groupby('Month')['Utilization_Ratio'].mean()
+    max_avg_utilization_3m = avg_utilization_per_month.tail(3).max()
 
-    # Tính toán trung bình hạn mức 3 tháng gần nhất
-    mean_avg_limit_3m = cc_df.groupby('Month')['Hạn mức được cấp'].mean().tail(3)
-
-    # Trả về giá trị theo loại tính toán
-    if type == 'max':
-        return avg_utilization_per_month.tail(3).max()
-    elif type == 'mean_limit':
-        return mean_avg_limit_3m.mean() if not mean_avg_limit_3m.empty else 0
-    else:
-        return 0
+    return max_avg_utilization_3m
 
 
 def calculate_street_loan_count(df):
@@ -463,7 +448,7 @@ if submit:
             'CODE_GENDER': encode_gender(gender) if gender != "Chọn" else np.nan,
             'NAME_EDUCATION_TYPE': encode_education(education if education != "Chọn" else None),
             'DAYS_EMPLOYED': encode_days_employed(days_employed),
-            'MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M': calculate_max_utilization(df,type='max'),
+            'MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M': calculate_max_utilization(df),
             'AMT_ANNUITY': amt_annuity * 1e6,
             'DAYS_ID_PUBLISH': calculate_days_id_publish(change_date.strftime('%Y-%m-%d'), application_date.strftime('%Y-%m-%d')),
             'AMT_EARLY_SUM_SUM_ALL': sum(entry['Dư nợ'] for entry in st.session_state.loan_entries if entry['Ngày trả gần nhất'] <= entry['Ngày trả theo lịch'] and entry['Ngày trả gần nhất'] <= entry['Ngày trả theo lịch']),
@@ -481,7 +466,7 @@ if submit:
         scaled_score = score_scaling(y_pred)
         age = compute_age_exact(birth_date)
         #MEAN_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M = calculate_max_utilization(df,type='mean')
-        MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M = calculate_max_utilization(df,type='max')
+        MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M = calculate_max_utilization(df)
         #avg_limit_3m =
         credit_limit = suggest_credit_limit(
             scaled_score,
