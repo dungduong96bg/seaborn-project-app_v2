@@ -82,30 +82,46 @@ def convert_document_3(value):
 def convert_car_ownership(value):
     return 1 if value == 'Có' else 0
 
-def calculate_max_utilization(df):
-    # Kiểm tra sự tồn tại của cột "Ngày trả theo lịch"
+def calculate_max_utilization(df, type='max'):
     if "Ngày trả theo lịch" not in df.columns:
-        st.warning("Không tìm thấy cột 'Ngày trả theo lịch' trong dữ liệu.")
         return 0
 
-    # Đảm bảo các giá trị là kiểu datetime
-    df["Ngày trả theo lịch"] = pd.to_datetime(df["Ngày trả theo lịch"], errors='coerce')
-
-    # Tạo cột 'Month'
+    # Đảm bảo các giá trị là datetime
+    df["Ngày trả theo lịch"] = pd.to_datetime(df["Ngày trả gần nhất"], errors='coerce')
     df['Month'] = df['Ngày trả theo lịch'].apply(lambda x: x.strftime('%Y-%m') if pd.notnull(x) else None)
 
-    # Lọc khoản vay thẻ
-    cc_df = df[df['Khoản vay thẻ?']]
+    # Kiểm tra cột 'Khoản vay thẻ?' có tồn tại không và có giá trị hợp lệ không
+    if "Khoản vay thẻ?" not in df.columns:
+        return 0
+
+    # Lọc các khoản vay thẻ
+    cc_df = df[df['Khoản vay thẻ?'] == True]
 
     if cc_df.empty:
         return 0
 
-    # Tính toán tỷ lệ sử dụng hạn mức
+    # Xử lý chia cho 0 và NaN
+    cc_df['Hạn mức được cấp'] = cc_df['Hạn mức được cấp'].replace({0: np.nan})
     cc_df['Utilization_Ratio'] = cc_df['Dư nợ'] / cc_df['Hạn mức được cấp']
-    avg_utilization_per_month = cc_df.groupby('Month')['Utilization_Ratio'].mean()
-    max_avg_utilization_3m = avg_utilization_per_month.tail(3).max()
 
-    return max_avg_utilization_3m
+    # Loại bỏ các giá trị NaN, inf, -inf
+    cc_df['Utilization_Ratio'].replace([np.inf, -np.inf], np.nan, inplace=True)
+    cc_df = cc_df.dropna(subset=['Utilization_Ratio'])
+
+    # Tính toán tỷ lệ sử dụng hạn mức trung bình theo tháng
+    avg_utilization_per_month = cc_df.groupby('Month')['Utilization_Ratio'].mean()
+
+    # Tính toán trung bình hạn mức 3 tháng gần nhất
+    mean_avg_limit_3m = cc_df.groupby('Month')['Hạn mức được cấp'].mean().tail(3)
+
+    # Trả về giá trị theo loại tính toán
+    if type == 'max':
+        return avg_utilization_per_month.tail(3).max()
+    elif type == 'mean_limit':
+        return mean_avg_limit_3m.mean() if not mean_avg_limit_3m.empty else 0
+    else:
+        return 0
+
 
 def calculate_street_loan_count(df):
     return df[df['Kênh'] == 'Tại quầy'].shape[0]
@@ -349,9 +365,14 @@ with st.expander("📄 Thông tin các khoản vay"):
     with col2:
         new_days_remaining = st.number_input("🔸 Số ngày còn lại", min_value=1, max_value=5000, step=1, key="days_remaining")
     with col3:
-        new_limit = st.number_input("Hạn mức được cấp", min_value=0, step=1000000, format="%d", key="limit")
+        new_limit_tr = st.number_input("Tổng HM (tr VNĐ)", min_value=0.0, step=1.0, format="%.2f",
+                                       key="limit_tr")
+        new_limit = new_limit_tr * 1e6
+
     with col4:
-        new_outstanding = st.number_input("Dư nợ", min_value=0, step=1000000, format="%d", key="outstanding")
+        new_outstanding_tr = st.number_input("Dư nợ (tr VNĐ)", min_value=0.0, step=1.0, format="%.2f",
+                                             key="outstanding_tr")
+        new_outstanding = new_outstanding_tr * 1e6
     with col5:
         new_last_payment_date = st.date_input("Ngày trả gần nhất", key="last_payment_date", min_value=date(1980, 1, 1), max_value=date(2025, 12, 31), value=date.today())
     with col6:
@@ -459,13 +480,15 @@ if submit:
         y_pred = model.predict(X_input)[0]
         scaled_score = score_scaling(y_pred)
         age = compute_age_exact(birth_date)
-        MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M = calculate_max_utilization(df)
+        MEAN_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M = calculate_max_utilization(df,type='mean')
+        MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M = calculate_max_utilization(df,type='max')
+        #avg_limit_3m =
         credit_limit = suggest_credit_limit(
             scaled_score,
             age,
             gender,
             education,
-            50e+6,
+            MEAN_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M,
             MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M,
             low=430.59,
             med=481.02,
