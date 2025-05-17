@@ -82,6 +82,33 @@ def convert_document_3(value):
 def convert_car_ownership(value):
     return 1 if value == 'Có' else 0
 
+def calculate_max_utilization(df):
+    # Kiểm tra sự tồn tại của cột "Ngày trả theo lịch"
+    if "Ngày trả theo lịch" not in df.columns:
+        st.warning("Không tìm thấy cột 'Ngày trả theo lịch' trong dữ liệu.")
+        return 0
+
+    # Đảm bảo các giá trị là kiểu datetime
+    df["Ngày trả theo lịch"] = pd.to_datetime(df["Ngày trả theo lịch"], errors='coerce')
+
+    # Tạo cột 'Month'
+    df['Month'] = df['Ngày trả theo lịch'].apply(lambda x: x.strftime('%Y-%m') if pd.notnull(x) else None)
+
+    # Lọc khoản vay thẻ
+    cc_df = df[df['Khoản vay thẻ?']]
+
+    if cc_df.empty:
+        return 0
+
+    # Tính toán tỷ lệ sử dụng hạn mức
+    cc_df['Utilization_Ratio'] = cc_df['Dư nợ'] / cc_df['Hạn mức được cấp']
+    avg_utilization_per_month = cc_df.groupby('Month')['Utilization_Ratio'].mean()
+    max_avg_utilization_3m = avg_utilization_per_month.tail(3).max()
+
+    return max_avg_utilization_3m
+
+def calculate_street_loan_count(df):
+    return df[df['Kênh'] == 'Tại quầy'].shape[0]
 
 def score_scaling(p):
     pdo = 50
@@ -190,34 +217,37 @@ st.title("💳 Ứng dụng chấm điểm tín dụng khách hàng")
 
 # 1. Thông tin cá nhân
 with st.expander("👤 Thông tin cá nhân"):
-    col1, col2 = st.columns([2, 2])
+    col1, col2 = st.columns([1, 1])
     with col1:
         Name = st.text_input("Họ tên KH:")
+        gender = st.selectbox("Giới tính", options=["Chọn", "Nữ", "Nam"], index=0)
+        change_date = st.date_input("Ngày cấp CMND", min_value=date(1980, 1, 1),max_value=date(2025, 12, 31),value=date.today())
+        employment_status = st.selectbox("Tình trạng việc làm", ["Đang làm việc", "Thất nghiệp", "Nghỉ hưu", "Khác"],
+                                         key="employment_status")
+        if employment_status == "Đang làm việc":
+            years_worked = st.number_input("Số năm làm việc", min_value=0, max_value=100, step=1, key="years_worked")
+            days_employed = years_worked * 365
+        else:
+            days_employed = 1
+
     with col2:
         cmnd = st.text_input("Số CMND/CCCD")
+        birth_date = st.date_input("Ngày sinh", min_value=date(1960, 1, 1), max_value=date(2010, 12, 31))
+        education = st.selectbox("Trình độ học vấn",
+                                 options=["Chọn", "Trung học cơ sở", "Trung học phổ thông / Trung cấp", "Đại học",
+                                          "Đại học chưa hoàn thành", "Sau đại học"])
+        income_type = st.selectbox("Loại thu nhập",
+                                   ['Chọn', 'Làm công ăn lương', 'Thất nghiệp', 'Sinh viên', 'Công chức nhà nước',
+                                    'Người nghỉ hưu', 'Nghỉ thai sản', 'Đối tác kinh doanh', 'Chủ doanh nghiệp'])
 
-    col3, col4 = st.columns([2, 2])
+    st.markdown("---")
+
+    col3, col4 = st.columns([1, 1])
     with col3:
-        gender = st.selectbox("Giới tính", options=["Chọn", "Nữ", "Nam"], index=0)
+        application_date = st.date_input("Ngày nộp đơn vay",min_value=date(2025, 1, 1),max_value=date(2025, 12, 31),value=date.today())
     with col4:
-        birth_date = st.date_input("Ngày sinh",min_value=date(1960, 1, 1),max_value=date(2010, 12, 31))
+        credit_application_date = st.date_input("Ngày mở khoản vay đầu tiên (ở tất cả TCTD)",min_value=date(1980, 1, 1),max_value=date(2025, 12, 31),value=date.today())
 
-    col5, col6 = st.columns([2, 2])
-    with col5:
-        change_date = st.date_input("Ngày cấp CMND", value=date.today())
-    with col6:
-        education = st.selectbox("Trình độ học vấn", options=["Chọn", "Trung học cơ sở", "Trung học phổ thông / Trung cấp", "Đại học", "Đại học chưa hoàn thành", "Sau đại học"])
-
-    col7, col8 = st.columns([2, 2])
-    with col7:
-        days_employed = st.number_input("Số ngày làm việc", min_value=-1000000, max_value=365243, step=1)
-    with col8:
-        income_type = st.selectbox("Loại thu nhập", ['Chọn', 'Làm công ăn lương', 'Thất nghiệp', 'Sinh viên', 'Công chức nhà nước', 'Người nghỉ hưu', 'Nghỉ thai sản', 'Đối tác kinh doanh', 'Chủ doanh nghiệp'])
-    col9, col10 = st.columns([2, 2])
-    with col9:
-        application_date = st.date_input("Ngày nộp đơn vay")
-    with col10:
-        credit_application_date = st.date_input("Ngày đăng ký tín dụng")
 # 5. Giấy tờ bổ sung
 with st.expander("📎 Hồ sơ khoản vay"):
     checklist_options = [
@@ -297,22 +327,22 @@ with st.expander("💰 Thông tin tín dụng"):
         amt_annuity = st.number_input("Khoản trả góp hàng tháng (triệu VNĐ)", min_value=0.0, step=0.1)
     with col6:
         amt_debt = st.number_input("Tổng dư nợ hiện tại (triệu VNĐ)", min_value=0.0, step=0.1)
-
     col7, col8 = st.columns([2, 2])
     with col7:
         amt_credit_sum = st.number_input("Tổng hạn mức tín dụng được cấp (triệu VNĐ)", min_value=0.0, step=0.1)
     with col8:
-        MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M = st.number_input("Tỷ lệ sử dụng hạn mức 3 tháng gần nhất", min_value=0.0, max_value=1.0)
+        DPD = st.selectbox("Khách hàng có đang quá hạn không?", ["Có", "Không"], key="DPD")
 
 
 # 4. Lịch sử tín dụng (danh sách khoản vay)
 #st.markdown("### 🗓 Lịch sử tín dụng (các khoản vay còn hiệu lực)")
+# 4. Lịch sử tín dụng (danh sách khoản vay)
 with st.expander("📄 Thông tin các khoản vay"):
     if "loan_entries" not in st.session_state:
         st.session_state.loan_entries = []
 
     # Tạo các cột cho tất cả các input trong một hàng
-    col1, col2, col3, col4, col5, col6, col7, col8, col9, col10 = st.columns([1, 1, 1, 1, 1, 1, 1, 1, 1,1])
+    col1, col2, col3, col4, col5, col6, col7, col8, col9, col10 = st.columns([1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
 
     with col1:
         new_loan_id = st.text_input("🔹 Mã khoản vay", key="loan_id")
@@ -323,22 +353,41 @@ with st.expander("📄 Thông tin các khoản vay"):
     with col4:
         new_outstanding = st.number_input("Dư nợ", min_value=0, step=1000000, format="%d", key="outstanding")
     with col5:
-        new_last_payment_date = st.date_input("Ngày trả gần nhất", key="last_payment_date")
+        new_last_payment_date = st.date_input("Ngày trả gần nhất", key="last_payment_date", min_value=date(1980, 1, 1), max_value=date(2025, 12, 31), value=date.today())
     with col6:
-        new_scheduled_payment_date = st.date_input("Ngày trả theo lịch", key="scheduled_payment_date")
+        new_scheduled_payment_date = st.date_input("Ngày trả theo lịch", key="scheduled_payment_date", min_value=date(1980, 1, 1), max_value=date(2025, 12, 31), value=date.today())
     with col7:
-        new_channel = st.selectbox("Kênh", ["Online", "Tại quầy"], key="channel")
+        new_channel = st.selectbox("Kênh", ["Chọn", "Online", "Tại quầy"], key="channel")
     with col8:
         new_is_installment = st.checkbox("Trả góp", key="is_installment")
     with col9:
-        new_is_cc = st.checkbox("Khoản vay thẻ?", key="is_closed")
+        new_is_cc = st.checkbox("Khoản vay thẻ?", key="is_cc")
     with col10:
-        new_is_closed = st.checkbox("Đã đóng khoản vay chưa?", key="is_cc")
+        new_is_closed = st.checkbox("Đã đóng khoản vay chưa?", key="is_closed")
+
+    # Kiểm tra và khởi tạo loan_entries nếu chưa có
+    if "loan_entries" not in st.session_state:
+        st.session_state.loan_entries = []
+
+    # Định nghĩa DataFrame mặc định
+    default_data = {
+        "Mã khoản vay": ["N/A"],
+        "Số ngày còn lại": [0],
+        "Trả góp": [False],
+        "Hạn mức được cấp": [0],
+        "Dư nợ": [0],
+        "Ngày trả gần nhất": [pd.NaT],
+        "Ngày trả theo lịch": [pd.NaT],
+        "Kênh": ["Không có"],
+        "Khoản vay thẻ?": [False],
+        "Đã đóng khoản vay chưa?": [False]
+    }
+    default_df = pd.DataFrame(default_data)
 
     # Nút thêm khoản vay
     if st.button("➕ Thêm khoản vay"):
         if new_loan_id:
-            st.session_state.loan_entries.append({
+            new_entry = {
                 "Mã khoản vay": new_loan_id,
                 "Số ngày còn lại": new_days_remaining,
                 "Trả góp": new_is_installment,
@@ -347,20 +396,39 @@ with st.expander("📄 Thông tin các khoản vay"):
                 "Ngày trả gần nhất": new_last_payment_date,
                 "Ngày trả theo lịch": new_scheduled_payment_date,
                 "Kênh": new_channel,
+                "Khoản vay thẻ?": new_is_cc,
                 "Đã đóng khoản vay chưa?": new_is_closed
-            })
+            }
 
-    # Hiển thị DataFrame
-    if st.session_state.loan_entries:
-        df = pd.DataFrame(st.session_state.loan_entries)
-        st.dataframe(df)
+            # Thêm dữ liệu vào session_state
+            st.session_state.loan_entries.append(new_entry)
+            #st.success("Đã thêm khoản vay thành công!")
+        else:
+            st.warning("Vui lòng điền đủ thông tin bắt buộc (Mã khoản vay và Kênh).")
+
+        # Hiển thị DataFrame đã chuẩn hóa
+        if st.session_state.loan_entries:
+            st.dataframe(pd.DataFrame(st.session_state.loan_entries))
+
 
 # 6. Submit & xử lý mô hình
 submit = st.button("🚀 Chấm điểm tín dụng")
 if submit:
-    if income_type == 'Chọn':
-        st.warning("Vui lòng chọn loại thu nhập")
+    errors = []
+
+    # Kiểm tra các selectbox bắt buộc không được để "Chọn"
+    if gender == "Chọn":
+        errors.append("Vui lòng chọn giới tính.")
+    if education == "Chọn":
+        errors.append("Vui lòng chọn trình độ học vấn.")
+    if income_type == "Chọn":
+        errors.append("Vui lòng chọn loại thu nhập.")
     else:
+        if st.session_state.loan_entries:
+            df = pd.DataFrame(st.session_state.loan_entries)
+            #st.write("DataFrame hiện tại:", df)
+        else:
+            st.warning("Chưa có dữ liệu khoản vay.")
         credit_durations = [entry["Số ngày còn lại"] for entry in st.session_state.loan_entries]
 
         features = {
@@ -374,7 +442,7 @@ if submit:
             'CODE_GENDER': encode_gender(gender) if gender != "Chọn" else np.nan,
             'NAME_EDUCATION_TYPE': encode_education(education if education != "Chọn" else None),
             'DAYS_EMPLOYED': encode_days_employed(days_employed),
-            'MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M': MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M,
+            'MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M': calculate_max_utilization(df),
             'AMT_ANNUITY': amt_annuity * 1e6,
             'DAYS_ID_PUBLISH': calculate_days_id_publish(change_date.strftime('%Y-%m-%d'), application_date.strftime('%Y-%m-%d')),
             'AMT_EARLY_SUM_SUM_ALL': sum(entry['Dư nợ'] for entry in st.session_state.loan_entries if entry['Ngày trả gần nhất'] <= entry['Ngày trả theo lịch'] and entry['Ngày trả gần nhất'] <= entry['Ngày trả theo lịch']),
@@ -383,7 +451,7 @@ if submit:
             'FLAG_DOCUMENT_3': convert_document_3(flag_document_3),
             'FLAG_OWN_CAR': convert_car_ownership(flag_own_car),
             'DAYS_CREDIT_max': calculate_days_credit(credit_application_date),
-            'NAME_PRODUCT_TYPE_street_sum': 0
+            'NAME_PRODUCT_TYPE_street_sum': calculate_street_loan_count(df)
         }
 
         X_input = pd.DataFrame([features])  # change
@@ -391,6 +459,7 @@ if submit:
         y_pred = model.predict(X_input)[0]
         scaled_score = score_scaling(y_pred)
         age = compute_age_exact(birth_date)
+        MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M = calculate_max_utilization(df)
         credit_limit = suggest_credit_limit(
             scaled_score,
             age,
@@ -417,10 +486,11 @@ if submit:
         explainer = shap.TreeExplainer(model)
         shap_values = explainer.shap_values(X_input)
 
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(4, 2))
         shap.plots.bar(shap.Explanation(values=shap_values,
                                         base_values=explainer.expected_value,
                                         data=X_input,
                                         feature_names=X_input.columns),
                        show=False)
+
         st.pyplot(fig)
