@@ -7,7 +7,8 @@ import lightgbm as lgb
 import matplotlib.pyplot as plt
 
 # Load mô hình LightGBM
-model = lgb.Booster(model_file=r'C:\Users\ADMIN\Documents\final_model.txt')
+#model = lgb.Booster(model_file=r'C:\Users\ADMIN\Documents\final_model.txt')
+model = lgb.Booster(model_file='final_model.txt')
 
 # ---------------------- Hàm xử lý ----------------------
 def encode_education(level):
