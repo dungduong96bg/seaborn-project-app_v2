@@ -487,7 +487,7 @@ if submit:
             education,
             avg_limit_3m,
             MAX_AMT_BALANCE_AMT_CREDIT_LIMIT_ACTUAL_meanonid_L3M,
-            low=430.59,
+            low=387.88,
             med=481.02,
             high=519.62,
             cap=500 * 1e6
