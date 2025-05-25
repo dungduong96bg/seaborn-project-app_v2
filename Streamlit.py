@@ -113,10 +113,7 @@ def calculate_avg_limit_l3m(df):#change-ver2
         return 0
     df["Ngày trả theo lịch"] = pd.to_datetime(df["Ngày trả theo lịch"], errors='coerce')
     df['Month'] = df['Ngày trả theo lịch'].apply(lambda x: x.strftime('%Y-%m') if pd.notnull(x) else None)
-    cc_df = df[df['Khoản vay thẻ?']==True]
-    if cc_df.empty:
-        return 0
-    avg_limit_per_month = cc_df.groupby('Month')['Hạn mức được cấp'].mean()
+    avg_limit_per_month = df.groupby('Month')['Hạn mức được cấp'].mean()
     avg_limit_l3m = avg_limit_per_month.tail(3).mean()
     return avg_limit_l3m
 
